@@ -31,7 +31,7 @@
 #import <Social/Social.h>
 #import "ShareViewController.h"
 
-@interface ShareViewController : SLComposeServiceViewController {
+@interface ShareViewController : UIViewController {
     int _verbosityLevel;
     NSUserDefaults *_userDefaults;
     NSString *_backURL;
@@ -65,6 +65,12 @@
 - (void) info:(NSString*)message { [self log:VERBOSITY_INFO message:message]; }
 - (void) warn:(NSString*)message { [self log:VERBOSITY_WARN message:message]; }
 - (void) error:(NSString*)message { [self log:VERBOSITY_ERROR message:message]; }
+- (void) viewDidLoad {
+    [super viewDidLoad];
+    printf("did load");
+    [self debug:@"[viewDidLoad]"];
+    [self submit];
+}
 
 - (void) setup {
     self.userDefaults = [[NSUserDefaults alloc] initWithSuiteName:SHAREEXT_GROUP_IDENTIFIER];
@@ -88,35 +94,49 @@
             NSInvocation *invocation = [NSInvocation invocationWithMethodSignature:methodSignature];
 
             // Arguments
-            NSDictionary<NSString *, id> *options = [NSDictionary dictionary];
             void (^completion)(BOOL success) = ^void(BOOL success) {
                 NSLog(@"Completions block: %i", success);
             };
 
-            [invocation setTarget: responder];
-            [invocation setSelector: selector];
-            [invocation setArgument: &url atIndex: 2];
-            [invocation setArgument: &options atIndex:3];
-            [invocation setArgument: &completion atIndex: 4];
-            [invocation invoke];
-            break;
+            if (@available(iOS 13.0, *)) {
+                UISceneOpenExternalURLOptions * options = [[UISceneOpenExternalURLOptions alloc] init];
+                options.universalLinksOnly = false;
+
+                [invocation setTarget: responder];
+                [invocation setSelector: selector];
+                [invocation setArgument: &url atIndex: 2];
+                [invocation setArgument: &options atIndex:3];
+                [invocation setArgument: &completion atIndex: 4];
+                [invocation invoke];
+                break;
+            } else {
+                NSDictionary<NSString *, id> *options = [NSDictionary dictionary];
+
+                [invocation setTarget: responder];
+                [invocation setSelector: selector];
+                [invocation setArgument: &url atIndex: 2];
+                [invocation setArgument: &options atIndex:3];
+                [invocation setArgument: &completion atIndex: 4];
+                [invocation invoke];
+                break;
+            }
         }
     }
 }
 
-- (void) didSelectPost {
+- (void) submit {
 
     [self setup];
-    [self debug:@"[didSelectPost]"];
+    [self debug:@"[submit]"];
 
     // This is called after the user selects Post. Do the upload of contentText and/or NSExtensionContext attachments.
     for (NSItemProvider* itemProvider in ((NSExtensionItem*)self.extensionContext.inputItems[0]).attachments) {
-        
+
         if ([itemProvider hasItemConformingToTypeIdentifier:SHAREEXT_UNIFORM_TYPE_IDENTIFIER]) {
             [self debug:[NSString stringWithFormat:@"item provider = %@", itemProvider]];
-            
+
             [itemProvider loadItemForTypeIdentifier:SHAREEXT_UNIFORM_TYPE_IDENTIFIER options:nil completionHandler: ^(id<NSSecureCoding> item, NSError *error) {
-                
+
                 NSData *data = [[NSData alloc] init];
                 if([(NSObject*)item isKindOfClass:[NSURL class]]) {
                     data = [NSData dataWithContentsOfURL:(NSURL*)item];
@@ -140,7 +160,6 @@
                     uti = SHAREEXT_UNIFORM_TYPE_IDENTIFIER;
                 }
                 NSDictionary *dict = @{
-                    @"text": self.contentText,
                     @"backURL": self.backURL,
                     @"data" : data,
                     @"uti": uti,
@@ -155,15 +174,15 @@
 
                 // Not allowed:
                 // [[UIApplication sharedApplication] openURL:[NSURL URLWithString:url]];
-                
+
                 // Crashes:
                 // [self.extensionContext openURL:[NSURL URLWithString:url] completionHandler:nil];
-                
+
                 // From https://stackoverflow.com/a/25750229/2343390
                 // Reported not to work since iOS 8.3
                 // NSURLRequest *request = [[NSURLRequest alloc] initWithURL:[NSURL URLWithString:url]];
                 // [self.webView loadRequest:request];
-                
+
                 [self openURL:[NSURL URLWithString:url]];
 
                 // Inform the host that we're done, so it un-blocks its UI.
